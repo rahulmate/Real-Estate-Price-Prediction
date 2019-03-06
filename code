@@ -1,0 +1,193 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Mar  3 09:45:30 2019
+
+@author: admin
+"""
+
+import pandas as pd
+import numpy as np
+import math
+import pylab
+# uses Ordinary Least Squares (OLS) method
+# -------------------------------------------
+import statsmodels.api as sm
+
+from sklearn.cross_validation import train_test_split
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# VIF
+# ---
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+
+# Feature selection
+# -----------------
+from sklearn.feature_selection import f_regression as fs
+
+data=pd.read_csv("D:\\python project\\New folder\\train.csv")
+data.head(5)
+data.shape
+
+# describe the dataset (R,C)
+# --------------------------
+data.dtypes
+
+#Treating missing values and null values
+columns = data.columns
+percent_missing = data.isnull().sum() * 100 / len(data)
+missing_value_df = pd.DataFrame({'column_name': columns,
+                                 'percent_missing': percent_missing})
+print(missing_value_df)
+data = data.drop('Id', 1)
+data = data.drop('Alley', 1)
+data = data.drop('PoolQC', 1)
+data = data.drop('Fence', 1)
+data = data.drop('MiscFeature', 1)
+
+#------------------
+factor_x = data.select_dtypes(exclude=["int64","float64","category"]).columns.values
+print(factor_x)
+num = data.select_dtypes(["int64","float64","category"]).columns.values
+print(num)
+# to find the correlation among variables (Multicollinearity)
+# ----------------------------------------------------------
+data.corr()
+cor = data.iloc[:,:].corr()
+print(cor)
+    
+# correlation using visualization
+# -------------------------------
+# cor --> defined above as the correlation amongst the x-variables
+sns.heatmap(cor, xticklabels=cor.columns, yticklabels=cor.columns)
+plt.savefig('heatmap')
+#-----------------------------------------------------------------------------------
+
+#data preparation
+data['YearBuilt'] = 2019 - data['YearBuilt']
+data['YearRemodAdd'] = 2019 - data['YearRemodAdd']
+data.boxplot(column='LotFrontage')
+median_LotFrontage = np.nanmedian(data.LotFrontage)
+data.LotFrontage[data.LotFrontage.isnull()]=median_LotFrontage
+data.FireplaceQu[
+        (data.FireplaceQu.isnull()) & 
+        (data.Fireplaces == 0)
+        ]='NOF'
+#Garage
+data.GarageType[(data.GarageCars==0) & (data.GarageType.isnull())] = "NoG"
+data.GarageFinish[(data.GarageCars==0) & (data.GarageFinish.isnull())] = "NoG"
+data.GarageQual[(data.GarageCars==0) & (data.GarageQual.isnull())] = "NoG"
+data.GarageCond[(data.GarageCars==0) & (data.GarageCond.isnull())] = "NoG"
+data.GarageYrBlt[(data.GarageCars==0) & (data.GarageYrBlt.isnull())] = 0
+data['GarageYrBlt']=2019 - data['GarageYrBlt']
+#Basement
+data.BsmtQual[(data.TotalBsmtSF==0) & (data.BsmtQual.isnull())] = "NoB"
+data.BsmtCond[(data.TotalBsmtSF==0) & (data.BsmtCond.isnull())] = "NoB"
+#veneer
+data.boxplot(column='MasVnrArea')
+median_veneer=np.nanmedian(data.MasVnrArea)
+data.MasVnrArea[data.MasVnrArea.isnull()] = median_veneer
+data.MasVnrType[data.MasVnrType.isnull()] = "None"
+#-----------------------------------------------------------Dummy Variables
+for var in factor_x:
+    cat_list='var'+'_'+var
+    cat_list = pd.get_dummies(data[var], prefix=var)
+    data1=data.join(cat_list)
+    data = data1
+
+# old+dummy columns
+data.columns
+
+data.head()
+
+data_vars=data.columns.values.tolist()
+to_keep = [i for i in data_vars if i not in factor_x]
+print(to_keep)
+
+
+# create the final dataset with the final columns set
+# ---------------------------------------------------
+data_final = data[to_keep]
+columns=data_final.columns
+print(columns)
+data_final = pd.concat(
+        [data_final['SalePrice'], 
+        data_final.drop('SalePrice',axis=1)],
+        axis=1)
+columns=data_final.columns
+print(columns)
+
+# converting the columns to ndarray
+# ---------------------------------
+final_cols = data_final.columns.values
+type(final_cols)
+print(final_cols)
+len(final_cols)
+
+# converting the columns to list
+# ------------------------------
+data_final_vars = data_final.columns.values.tolist()
+type(data_final_vars)
+y=['SalePrice']
+X=[i for i in data_final_vars if i not in y]
+
+print(X)
+print(y)
+
+# split the dataset into train and test
+# ---------------------------------------------------
+train, test = train_test_split(data_final, test_size = 0.3)
+
+print(train.shape)
+print(test.shape)
+
+# split the train and test into X and Y variables
+train_x = train.iloc[:,1:283]; train_y = train.iloc[:,0]
+test_x  = test.iloc[:,1:283];  test_y = test.iloc[:,0]
+train.dtypes
+
+# function -> getresiduals()
+# -------------------------------
+def getresiduals(lm,train_x,train_y):
+    predicted = lm.predict(train_x)
+    actual = train_y
+    residual = actual-predicted
+    
+    return(residual)
+    
+
+# gives a nice R-like summary()
+
+# To add the constant term A (Y = A + B1X1 + B2X2 + ... + BnXn)
+# Xn = ccomp,slag,flyash.....
+# ----------------------------------------------------------
+train_x = sm.add_constant(train_x)
+test_x = sm.add_constant(test_x)
+lm1 = sm.OLS(train_y, train_x).fit()
+
+# interpret the result
+# =====================
+# 1) significant variables: having high |t| or low P values
+# 2) coefficients = average(coeff(0.025,0.975))
+lm1.summary()
+# coefficients
+lm1.params
+
+### validating the assumptions
+# ----------------------------
+residuals = getresiduals(lm1,train_x,train_y)
+print(residuals)
+
+vif = pd.DataFrame()
+vif["VIF Factor"] = [variance_inflation_factor(train_x.values, i)
+for i in range(train_x.shape[1])]
+vif["features"] = train_x.columns
+print(vif)
+
+y = lm1.predict(train_x)
+sns.set(style="whitegrid")
+sns.residplot(residuals,y,lowess=True,color="g")
+sns.residplot(residuals,y,lowess=False,color="g")
+stats.probplot(residuals,dist="norm",plot=pylab)
+pylab.show()
